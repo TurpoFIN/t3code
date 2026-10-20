@@ -20,6 +20,9 @@ its changes come back to your project folder.
   panel show the agent's edits in your folder. Commit and push them as usual.
 - **Git**: the agent works on its own branch, `shard/<name>`. When a message finishes, that branch
   appears in your repository as `shardflux/<name>`; your checked-out branch is not moved.
+- **Status**: the thread details panel shows a **Shardflux** row with the computer's state: Not
+  started, Starting, Running or Idle (asleep between messages; the next message wakes it). Hover it
+  for the computer's name and the Shardflux conversation.
 - **Terminal**: a thread's terminal opens in its cloud computer, in the project. Before the first
   message it waits for the computer to start.
 

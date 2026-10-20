@@ -12,13 +12,16 @@ it through its existing ACP runtime, so session events, approvals, models and ch
 Everything Shardflux-specific lives in [`apps/server/src/shardflux`](../../apps/server/src/shardflux) behind
 upstream seams, so the fork rebases on upstream with small conflicts:
 
-| Seam                    | Hook                                                                                            | Shardflux module       |
-| ----------------------- | ----------------------------------------------------------------------------------------------- | ---------------------- |
-| Provider instances      | `ProviderInstanceRegistryHydration` derives the instance map and drivers through the backend    | `ExecutionBackend.ts`  |
-| Client-visible settings | startup layer in `server.ts`                                                                    | `ShardfluxSettings.ts` |
-| Terminals               | `PtySpawnInput.threadId`, set by the terminal manager; `server.ts` provides the wrapped adapter | `RemotePty.ts`         |
-| Git                     | a reactor in `server.ts` on terminal `run.updated`                                              | `BranchLanding.ts`     |
-| Onboarding              | the Agents step lists the environment's own agents when it runs none of the local ones          | `WelcomeWizard.tsx`    |
+| Seam                    | Hook                                                                                                           | Shardflux module                                      |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Provider instances      | `ProviderInstanceRegistryHydration` derives the instance map and drivers through the backend                   | `ExecutionBackend.ts`                                 |
+| Client-visible settings | startup layer in `server.ts`                                                                                   | `ShardfluxSettings.ts`                                |
+| Terminals               | `PtySpawnInput.threadId`, set by the terminal manager; `server.ts` provides the wrapped adapter                | `RemotePty.ts`                                        |
+| Git                     | a reactor in `server.ts` on terminal `run.updated`                                                             | `BranchLanding.ts`                                    |
+| Thread status           | `subscribeShardfluxThreadStatus` (contracts `shardflux.ts`), handled in `ws.ts`; a row in `ThreadDetailsPanel` | `ThreadStatus.ts`, web `ShardfluxThreadStatusRow.tsx` |
+| Providers settings      | a server that reports only the Shardflux instance lists no unrun default slots                                 | web `settings/shardfluxProviders.ts`                  |
+| Provider icon           | `ProviderInstanceIcon` draws the Shardflux mark for the Shardflux instance                                     | web `ShardfluxMark.tsx`                               |
+| Onboarding              | the Agents step lists the environment's own agents when it runs none of the local ones                         | `WelcomeWizard.tsx`                                   |
 
 ## Constraints
 
@@ -37,6 +40,15 @@ upstream seams, so the fork rebases on upstream with small conflicts:
   `refs/remotes/shardflux/<name>` from a `git bundle` made in the VM. T3's own Git actions commit and push.
 - **T3's MCP tools are not offered to the cloud agent.** `shard acp` gives the agent the conversation's own
   Shardflux MCP server; T3's MCP endpoint is loopback on this machine.
+
+## Thread status
+
+The server streams each open thread's VM state while its panel is subscribed: it re-reads the conversation and
+its workspace every 1.5 s while the VM is not started, starting or idle (a message can change it at any moment)
+and every 5 s otherwise, and pushes only changes. `starting` covers the first message's `session/new` (a
+Shardflux provider thread with no session id yet, for up to 3 minutes) and the workspace's creating, starting,
+resuming and forking states; `idle` is suspending or suspended. The VM name is the workspace's hostname, read
+once from the running VM. A failed read after a known state keeps that state.
 
 ## Traps
 
