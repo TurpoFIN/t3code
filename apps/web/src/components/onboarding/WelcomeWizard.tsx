@@ -652,6 +652,19 @@ function PairingForm({
 const PRIMARY_AGENT_DRIVERS = ["codex", "claudeAgent"] as const;
 type OnboardingAgentDriver = (typeof PRIMARY_AGENT_DRIVERS)[number];
 
+/**
+ * An environment that runs none of the primary agents (one whose only execution backend is a cloud one, such as
+ * Shardflux) lists the agents it does run, instead of waiting on local agents it will never report.
+ */
+function environmentOnlyAgents(
+  providers: ReadonlyArray<ServerProvider> | null | undefined,
+): ReadonlyArray<ServerProvider> | null {
+  if (!providers || providers.length === 0) return null;
+  const primary: ReadonlyArray<string> = PRIMARY_AGENT_DRIVERS;
+  if (providers.some((provider) => primary.includes(provider.driver))) return null;
+  return providers.filter((provider) => provider.enabled);
+}
+
 interface AgentTerminalSession {
   readonly environmentId: EnvironmentId;
   readonly driver: OnboardingAgentDriver;
@@ -724,6 +737,26 @@ function ConnectedAgentsStep({
   }, [environmentId, refreshProviders]);
 
   const byDriver = selectOnboardingProvidersByDriver(providers);
+  const environmentAgents = environmentOnlyAgents(providers);
+  if (environmentAgents) {
+    return (
+      <section>
+        <h2 className="mb-2 text-sm font-medium">{machineLabel}</h2>
+        <div className="space-y-1.5">
+          {environmentAgents.map((provider) => (
+            <AgentCard
+              key={provider.instanceId}
+              driver={provider.driver}
+              provider={provider}
+              terminalOpen={false}
+              terminalAvailable={false}
+              onOpenTerminal={() => undefined}
+            />
+          ))}
+        </div>
+      </section>
+    );
+  }
 
   const primaryAgents = PRIMARY_AGENT_DRIVERS.flatMap((driver) => {
     const instances =
@@ -952,7 +985,7 @@ function AgentCard({
   terminalAvailable,
   onOpenTerminal,
 }: {
-  readonly driver: OnboardingAgentDriver;
+  readonly driver: OnboardingAgentDriver | ProviderDriverKind;
   readonly provider: ServerProvider | undefined;
   readonly terminalOpen: boolean;
   readonly terminalAvailable: boolean;
