@@ -129,6 +129,8 @@ export default mergeConfig(
       sequence: { sequencer: WeightedShardSequencer },
       // Appended to the root setup, which mergeConfig concatenates.
       setupFiles: ["./src/testUtils/gitConfig.setup.ts"],
+      // Upstream suites exercise local providers; the Shardflux backend has its own tests (src/shardflux).
+      env: { T3CODE_EXECUTION_BACKEND: "local" },
       hookTimeout: 120_000,
       testTimeout: 120_000,
     },

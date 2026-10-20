@@ -39,7 +39,6 @@ import { fixPath } from "./os-jank.ts";
 import * as Ws from "./ws.ts";
 import * as AgentScopeLive from "./process/agentScope.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
-import * as NodePtyAdapter from "./terminal/NodePtyAdapter.ts";
 import * as PullRequestHttp from "./pullRequest/http.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
@@ -65,6 +64,11 @@ import * as CheckpointStore from "./checkpointing/CheckpointStore.ts";
 import * as SourceControlBuiltInDrivers from "./sourceControl/builtInDrivers.ts";
 import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import * as ProviderInstanceRegistryHydration from "./provider/ProviderInstanceRegistryHydration.ts";
+import * as ShardfluxSettings from "./shardflux/ShardfluxSettings.ts";
+import * as ShardfluxBranchLanding from "./shardflux/BranchLanding.ts";
+import * as ShardfluxCloud from "./shardflux/ShardfluxCloud.ts";
+import * as ShardfluxRemotePty from "./shardflux/RemotePty.ts";
+import * as ShardfluxThreadBindings from "./shardflux/ThreadBindings.ts";
 import * as ProjectSettingsOverrideSweep from "./provider/ProjectSettingsOverrideSweep.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
@@ -228,7 +232,12 @@ const layerProviderEventLoggers = Layer.effect(
   }),
 );
 
-const layerPtyAdapter = NodePtyAdapter.layer;
+// A thread's terminal runs in its Shardflux conversation VM; other terminals stay on node-pty.
+const layerPtyAdapter = ShardfluxRemotePty.layer.pipe(
+  Layer.provide(ShardfluxThreadBindings.layer),
+  Layer.provide(ProjectionStoreV2.layer),
+  Layer.provide(ShardfluxCloud.layer),
+);
 
 const layerServerSettings = ServerSettings.layer.pipe(
   Layer.provide(ServerSecretStore.layer),
@@ -594,6 +603,13 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   layerProviderInstallationRefresh,
   ReplayMarkers.layer,
   Layer.effectDiscard(ProjectSettingsOverrideSweep.sweep),
+  ShardfluxSettings.layer,
+  ShardfluxBranchLanding.layerStarted.pipe(
+    Layer.provide(ShardfluxThreadBindings.layer),
+    Layer.provide(ShardfluxCloud.layer),
+    Layer.provide(Layer.merge(ProjectionStoreV2.layer, ProjectStore.layer)),
+    Layer.provide(ProcessRunner.layer),
+  ),
 ).pipe(
   Layer.provideMerge(layerOrchestrationApplication),
   Layer.provideMerge(RuntimeLayer.layerEventInfrastructure),

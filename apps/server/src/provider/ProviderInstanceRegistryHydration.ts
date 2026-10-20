@@ -7,6 +7,7 @@ import {
   type ProviderInstanceId,
   ServerSettings,
 } from "@t3tools/contracts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
@@ -21,6 +22,7 @@ import * as ProviderHostLive from "./ProviderHostLive.ts";
 import type * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import type * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import type * as ServerConfig from "../config.ts";
+import * as ExecutionBackend from "../shardflux/ExecutionBackend.ts";
 
 type ProviderInstanceRegistryHydrationEnv =
   | Exclude<
@@ -69,7 +71,10 @@ export const deriveProviderInstanceConfigMap = (
   return merged as ProviderInstanceConfigMap;
 };
 
-const layerSettingsWatcher = (settingsChanges: Stream.Stream<ServerSettings>) =>
+const layerSettingsWatcher = (
+  settingsChanges: Stream.Stream<ServerSettings>,
+  configMapOf: (settings: ServerSettings) => ProviderInstanceConfigMap,
+) =>
   Layer.effectDiscard(
     Effect.gen(function* () {
       const mutator = yield* ProviderInstanceRegistryMutator.ProviderInstanceRegistryMutator;
@@ -79,9 +84,7 @@ const layerSettingsWatcher = (settingsChanges: Stream.Stream<ServerSettings>) =>
           // The subscription predates the seed read, so a queued change can be
           // older than the seed. A failed current read must leave the registry intact.
           serverSettings.getSettings.pipe(
-            Effect.flatMap((current) =>
-              mutator.reconcile(deriveProviderInstanceConfigMap(current)),
-            ),
+            Effect.flatMap((current) => mutator.reconcile(configMapOf(current))),
             Effect.catchCause((cause) =>
               Effect.logError("ProviderInstanceRegistry reconcile failed", cause),
             ),
@@ -99,6 +102,15 @@ export const layer: Layer.Layer<
 > = Layer.unwrap(
   Effect.gen(function* () {
     const serverSettings = yield* Settings.ServerSettingsService;
+    const environment = yield* HostProcess.Environment;
+    const backend = ExecutionBackend.resolveExecutionBackend(environment);
+    const configMapOf = (settings: ServerSettings) =>
+      ExecutionBackend.executionBackendConfigMap(
+        backend,
+        environment,
+        settings,
+        deriveProviderInstanceConfigMap,
+      );
     // Subscribe before the seed read so saves during registry construction are queued.
     const settingsChanges = yield* serverSettings.subscribeChanges;
     const initialSettings: ServerSettings | undefined = yield* serverSettings.getSettings.pipe(
@@ -107,10 +119,10 @@ export const layer: Layer.Layer<
     const initialConfigMap =
       initialSettings === undefined
         ? ({} as ProviderInstanceConfigMap)
-        : deriveProviderInstanceConfigMap(initialSettings);
+        : configMapOf(initialSettings);
 
     const layerMutable = ProviderInstanceRegistry.layer({
-      drivers: BUILT_IN_DRIVERS,
+      drivers: ExecutionBackend.executionBackendDrivers(backend, BUILT_IN_DRIVERS),
       configMap: initialConfigMap,
     }).pipe(
       Layer.provide(ProviderOrchestrationAdapterInfrastructure.layer),
@@ -118,7 +130,9 @@ export const layer: Layer.Layer<
       Layer.provide(ProviderHostLive.layer),
     );
 
-    return layerSettingsWatcher(settingsChanges).pipe(Layer.provideMerge(layerMutable));
+    return layerSettingsWatcher(settingsChanges, configMapOf).pipe(
+      Layer.provideMerge(layerMutable),
+    );
   }),
 ) as Layer.Layer<
   ProviderInstanceRegistry.ProviderInstanceRegistry,

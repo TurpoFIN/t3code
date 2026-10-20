@@ -39,6 +39,8 @@ export interface PtySpawnInput {
   cols: number;
   rows: number;
   env: NodeJS.ProcessEnv;
+  /** The thread the terminal belongs to, for adapters that run a thread's terminal elsewhere. */
+  threadId?: string;
 }
 
 export class PtyAdapter extends Context.Service<

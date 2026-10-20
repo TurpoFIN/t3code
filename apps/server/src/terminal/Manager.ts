@@ -2219,6 +2219,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
         cols: session.cols,
         rows: session.rows,
         env: spawnEnv,
+        threadId: session.threadId,
       }),
     );
 
