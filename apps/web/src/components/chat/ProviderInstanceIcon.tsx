@@ -12,6 +12,8 @@ import { AntigravityIcon, ClaudeAI, Icon, OpenAI } from "../Icons";
 import { cn } from "~/lib/utils";
 import { providerClients } from "../settings/providerDriverMeta";
 import { ProviderPackageIcon } from "./ProviderPackageIcon";
+import { ShardfluxMark } from "../ShardfluxMark";
+import { SHARDFLUX_DISPLAY_NAME } from "../settings/shardfluxProviders";
 import {
   AcpRegistryAgentIcon,
   officialAcpRegistryIconUrlForAgentId,
@@ -84,6 +86,11 @@ export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
     : undefined;
   const badgeContent = props.badgeContent ?? "initials";
   const iconClassName = cn(props.size === "compact" && "size-3.5", props.iconClassName);
+  // Fork: the Shardflux instance is a local ACP command with no registry icon; it shows the Shardflux mark.
+  const isShardflux =
+    props.driverKind === "acpRegistry" &&
+    props.displayName === SHARDFLUX_DISPLAY_NAME &&
+    !props.acpRegistryAgentId;
   const isAcpRegistry = props.driverKind === "acpRegistry";
   const acpRegistryIconUrl = resolveProviderInstanceAcpRegistryIconUrl({
     driverKind: props.driverKind,
@@ -100,7 +107,12 @@ export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
       style={accentStyle}
       data-provider-accent-color={accentColor}
     >
-      {isAcpRegistry ? (
+      {isShardflux ? (
+        <ShardfluxMark
+          className={cn("size-5 shrink-0 text-foreground", iconClassName)}
+          aria-hidden
+        />
+      ) : isAcpRegistry ? (
         <AcpRegistryAgentIcon
           className={cn("size-5 rounded-none bg-transparent", iconClassName)}
           fallbackClassName="size-full"

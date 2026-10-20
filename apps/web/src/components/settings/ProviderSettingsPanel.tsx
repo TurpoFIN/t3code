@@ -98,6 +98,7 @@ import { stackedThreadToast, toastManager } from "../ui/toast";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
 import { ExpandableText } from "./ExpandableText";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
+import { isShardfluxOnlyServer } from "./shardfluxProviders";
 import { UsageProviderSettings } from "./UsageProviderSettings";
 import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetupSection";
 import { ProviderAuthenticationSection } from "./ProviderAuthenticationSection";
@@ -795,6 +796,21 @@ export function EnvironmentProviderSettings({
         driver: instance.driver,
         isDefault: defaultSlotIdsBySource.has(String(id)),
       });
+    }
+  }
+
+  // Fork (Shardflux): a server that runs only the Shardflux instance reports no other provider, so the default
+  // slots it does not run are left out instead of waiting on a status that never comes.
+  if (isShardfluxOnlyServer(serverProviders)) {
+    for (let index = rows.length - 1; index >= 0; index--) {
+      const row = rows[index]!;
+      if (
+        row.isDefault &&
+        row.explicitInstance === undefined &&
+        row.instanceId !== targetInstanceId
+      ) {
+        rows.splice(index, 1);
+      }
     }
   }
 
