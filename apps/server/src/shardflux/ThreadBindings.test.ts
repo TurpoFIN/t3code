@@ -12,6 +12,7 @@ import {
   conversationNameForAcpSession,
   localFolderOf,
   shardfluxAcpSessionId,
+  shardfluxSessionStarting,
 } from "./ThreadBindings.ts";
 
 // Recorded 2026-10-20 from the live API: `shard acp` session sf-0f0e3865-… ran as conversation
@@ -93,6 +94,58 @@ describe("shardfluxAcpSessionId", () => {
       ]),
     ).toBe(newer);
     expect(shardfluxAcpSessionId([])).toBeNull();
+  });
+});
+
+describe("shardfluxSessionStarting", () => {
+  const now = Date.parse("2026-10-20T03:15:00.000Z");
+
+  it("reads a recent Shardflux provider thread without a session as the first message creating its VM", () => {
+    expect(
+      shardfluxSessionStarting(
+        [
+          providerThread({
+            instance: "shardflux",
+            nativeId: null,
+            updatedAt: "2026-10-20T03:14:55.000Z",
+          }),
+        ],
+        now,
+      ),
+    ).toBe(true);
+  });
+
+  it("is not starting once the session exists, for other instances, or long after a start that never finished", () => {
+    const cases = [
+      [
+        providerThread({
+          instance: "shardflux",
+          nativeId: RECORDED_SESSION,
+          updatedAt: "2026-10-20T03:14:55.000Z",
+        }),
+      ],
+      [
+        providerThread({
+          instance: "codex",
+          nativeId: null,
+          updatedAt: "2026-10-20T03:14:55.000Z",
+        }),
+      ],
+      [
+        providerThread({
+          instance: "shardflux",
+          nativeId: null,
+          updatedAt: "2026-10-20T03:05:00.000Z",
+        }),
+      ],
+      [],
+    ];
+    expect(cases.map((threads) => shardfluxSessionStarting(threads, now))).toEqual([
+      false,
+      false,
+      false,
+      false,
+    ]);
   });
 });
 

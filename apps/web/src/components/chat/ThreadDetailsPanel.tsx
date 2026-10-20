@@ -21,6 +21,7 @@ import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
+import { ShardfluxThreadStatusRow } from "./ShardfluxThreadStatusRow";
 
 const GitActionsControl = memo(BaseGitActionsControl);
 
@@ -122,6 +123,12 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                   {...branchToolbarProps}
                 />
               ) : null}
+
+              <ShardfluxThreadStatusRow
+                environmentId={props.environmentId}
+                threadId={props.threadId}
+                isDraft={props.draftId !== undefined}
+              />
 
               {density !== "essential" && props.showOpenInPicker ? (
                 <OpenInPicker

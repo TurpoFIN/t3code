@@ -69,6 +69,7 @@ import * as ShardfluxBranchLanding from "./shardflux/BranchLanding.ts";
 import * as ShardfluxCloud from "./shardflux/ShardfluxCloud.ts";
 import * as ShardfluxRemotePty from "./shardflux/RemotePty.ts";
 import * as ShardfluxThreadBindings from "./shardflux/ThreadBindings.ts";
+import * as ShardfluxThreadStatus from "./shardflux/ThreadStatus.ts";
 import * as ProjectSettingsOverrideSweep from "./provider/ProjectSettingsOverrideSweep.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
@@ -609,6 +610,11 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
     Layer.provide(ShardfluxCloud.layer),
     Layer.provide(Layer.merge(ProjectionStoreV2.layer, ProjectStore.layer)),
     Layer.provide(ProcessRunner.layer),
+  ),
+  ShardfluxThreadStatus.layer.pipe(
+    Layer.provide(ShardfluxThreadBindings.layer),
+    Layer.provide(ShardfluxCloud.layer),
+    Layer.provide(ProjectionStoreV2.layer),
   ),
 ).pipe(
   Layer.provideMerge(layerOrchestrationApplication),

@@ -4,9 +4,15 @@ import { Shardflux } from "@shardflux/sdk";
 import { assert, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
+import { ThreadId } from "@t3tools/contracts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import { describe } from "vite-plus/test";
 
 import { ShardfluxPtyProcess } from "./RemotePty.ts";
+import * as ThreadBindings from "./ThreadBindings.ts";
+import * as ThreadStatus from "./ThreadStatus.ts";
 import {
   findConversationByName,
   localFolderOf,
@@ -97,6 +103,55 @@ describe.runIf(live)("Shardflux live", () => {
       assert.include(output(), `live:${vmHostname}:${found.worktree_path}:${found.branch}`);
       assert.notStrictEqual(vmHostname, NodeOS.hostname());
     }),
+  );
+
+  it.live(
+    "shows the thread's VM as running, named by its hostname, and then idle once it sleeps",
+    () =>
+      Effect.gen(function* () {
+        const { sdk, found, binding } = yield* conversation;
+        const workspace = yield* Effect.tryPromise(() => sdk.workspaces.get(found.workspace_id));
+        if (!workspace.ready)
+          yield* Effect.tryPromise(() => workspace.wake({ timeoutMs: 120_000 }));
+        const cell = workspace.cell();
+        const vmHostname = (yield* Effect.tryPromise(() =>
+          cell.exec.run(["hostname"], { timeoutMs: 30_000 }),
+        )).stdout.trim();
+        cell.close();
+
+        const bindings = Layer.succeed(ThreadBindings.ShardfluxThreadBindings, {
+          resolve: () => Effect.succeed(binding),
+          lookup: () => Effect.succeed({ _tag: "bound", binding, client: sdk } as const),
+        });
+        const firstStatus = Effect.gen(function* () {
+          const service = yield* ThreadStatus.ShardfluxThreadStatusService;
+          return yield* service.stream(ThreadId.make("live-status")).pipe(Stream.runHead);
+        }).pipe(
+          Effect.provide(ThreadStatus.layer.pipe(Layer.provide(bindings))),
+          // The suite runs with T3CODE_EXECUTION_BACKEND=local for upstream's tests; this one is the Shardflux backend.
+          Effect.provideService(HostProcess.Environment, {
+            ...process.env,
+            T3CODE_EXECUTION_BACKEND: "shardflux",
+          }),
+        );
+
+        const running = yield* firstStatus;
+        assert.deepStrictEqual(running._tag === "Some" ? running.value : null, {
+          backend: "shardflux",
+          state: "running",
+          vmName: vmHostname,
+          conversationId: found.id,
+          reason: null,
+        });
+        assert.notStrictEqual(vmHostname, NodeOS.hostname());
+
+        if (process.env.T3CODE_SHARDFLUX_LIVE_SUSPEND === "1") {
+          const awake = yield* Effect.tryPromise(() => sdk.workspaces.get(found.workspace_id));
+          yield* Effect.tryPromise(() => awake.suspend());
+          const idle = yield* firstStatus;
+          assert.strictEqual(idle._tag === "Some" ? idle.value.state : null, "idle");
+        }
+      }),
   );
 
   it.live("closes the VM shell when the terminal is killed", () =>

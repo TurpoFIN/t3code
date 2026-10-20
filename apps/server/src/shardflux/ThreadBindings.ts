@@ -45,6 +45,25 @@ export function shardfluxAcpSessionId(
   return candidates[0]?.nativeId ?? null;
 }
 
+/** How long a Shardflux provider thread may wait for its `shard acp` session before it no longer reads as starting. */
+const SESSION_START_WINDOW_MS = 3 * 60_000;
+
+/**
+ * True while the thread's first message is creating its conversation: a Shardflux provider thread exists but has no
+ * `shard acp` session id yet (T3 records it once `session/new`, which creates the VM, has returned).
+ */
+export function shardfluxSessionStarting(
+  providerThreads: ReadonlyArray<OrchestrationV2ProviderThread>,
+  nowMillis: number,
+): boolean {
+  return providerThreads.some(
+    (providerThread) =>
+      providerThread.providerInstanceId === SHARDFLUX_INSTANCE_ID &&
+      !ACP_SESSION_ID.test(providerThread.nativeThreadRef?.nativeId ?? "") &&
+      nowMillis - DateTime.toEpochMillis(providerThread.updatedAt) < SESSION_START_WINDOW_MS,
+  );
+}
+
 export function localFolderOf(repoRemote: string): string | null {
   if (!repoRemote.startsWith("file://")) return null;
   try {
@@ -83,11 +102,29 @@ export const findConversationByName = (client: Shardflux, name: string, since: s
     return null;
   });
 
+/**
+ * `no-client`: no Shardflux API key on this machine. `not-started`: the thread has sent no message, so it has no
+ * `shard acp` session. `pending`: the first message is creating its conversation (its session is starting, or exists
+ * but its conversation is not listed yet). `failed`: the thread or the API could not be read.
+ */
+export type ShardfluxBindingLookup =
+  | { readonly _tag: "no-client" }
+  | { readonly _tag: "not-started" }
+  | { readonly _tag: "pending" }
+  | { readonly _tag: "failed" }
+  | {
+      readonly _tag: "bound";
+      readonly binding: ShardfluxConversationBinding;
+      readonly client: Shardflux;
+    };
+
 export class ShardfluxThreadBindings extends Context.Service<
   ShardfluxThreadBindings,
   {
     /** Null until the thread's first message has given it a conversation, or without Shardflux access. */
     readonly resolve: (threadId: ThreadId) => Effect.Effect<ShardfluxConversationBinding | null>;
+    /** How far the thread is: the same resolution as `resolve`, saying why there is no binding yet. */
+    readonly lookup: (threadId: ThreadId) => Effect.Effect<ShardfluxBindingLookup>;
   }
 >()("t3/shardflux/ThreadBindings/ShardfluxThreadBindings") {}
 
@@ -97,33 +134,43 @@ export const make = Effect.gen(function* () {
   // A session names one conversation for good; its computer can change (a move, a restore), so only the id is kept.
   const conversationIds = new Map<string, string>();
 
-  const resolve = Effect.fn("ShardfluxThreadBindings.resolve")(
+  const lookup = Effect.fn("ShardfluxThreadBindings.lookup")(
     function* (threadId: ThreadId) {
       const client = yield* cloud.client;
-      if (client === null) return null;
+      if (client === null) return { _tag: "no-client" } as const;
       const records = yield* projections.getThreadRecords(threadId, ["providerThreads"]);
       const sessionId = shardfluxAcpSessionId(records.providerThreads);
       const name = sessionId ? conversationNameForAcpSession(sessionId) : null;
-      if (!sessionId || !name) return null;
+      if (!sessionId || !name) {
+        const now = DateTime.toEpochMillis(yield* DateTime.now);
+        return shardfluxSessionStarting(records.providerThreads, now)
+          ? ({ _tag: "pending" } as const)
+          : ({ _tag: "not-started" } as const);
+      }
       let conversationId = conversationIds.get(sessionId);
       if (conversationId === undefined) {
         // The conversation starts after its thread; an hour of slack covers clock skew.
         const since = DateTime.formatIso(DateTime.subtract(records.thread.createdAt, { hours: 1 }));
         const found = yield* findConversationByName(client, name, since);
-        if (found === null) return null;
+        if (found === null) return { _tag: "pending" } as const;
         conversationId = found;
         conversationIds.set(sessionId, conversationId);
       }
       const id = conversationId;
       const conversation = yield* Effect.tryPromise(() => client.conversations.get(id));
-      return bindingOf(conversation);
+      return { _tag: "bound", binding: bindingOf(conversation), client } as const;
     },
     Effect.catchCause((cause) =>
-      Effect.logWarning("Shardflux thread binding unavailable", cause).pipe(Effect.as(null)),
+      Effect.logWarning("Shardflux thread binding unavailable", cause).pipe(
+        Effect.as<ShardfluxBindingLookup>({ _tag: "failed" }),
+      ),
     ),
   );
 
-  return { resolve } satisfies ShardfluxThreadBindings["Service"];
+  const resolve = (threadId: ThreadId) =>
+    lookup(threadId).pipe(Effect.map((found) => (found._tag === "bound" ? found.binding : null)));
+
+  return { resolve, lookup } satisfies ShardfluxThreadBindings["Service"];
 });
 
 export const layer = Layer.effect(ShardfluxThreadBindings, make);
